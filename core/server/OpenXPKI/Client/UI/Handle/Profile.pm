@@ -14,7 +14,7 @@ sub render_profile_select {
     my $wf_action = shift;
 
 
-    $self->logger()->debug( 'render_profile_select with args: ' . Dumper $args );
+    $self->logger()->trace( 'render_profile_select with args: ' . Dumper $args );
 
     my $wf_info = $args->{WF_INFO};
 
@@ -74,7 +74,7 @@ sub render_profile_select {
         type => 'form',
         action => 'workflow',
         content => {
-            submit_label => 'I18N_OPENXPKI_UI_WORKFLOW_LABEL_CONTINUE',
+            submit_label => 'I18N_OPENXPKI_UI_WORKFLOW_SUBMIT_BUTTON',
             fields => \@fields
         }
     });
@@ -110,7 +110,7 @@ sub render_subject_form {
     my $fields = $self->send_command( 'get_field_definition',
         { PROFILE => $cert_profile, STYLE => $cert_subject_style, 'SECTION' =>  substr($field_type, 5) });
 
-    $self->logger()->debug( 'Profile fields' . Dumper $fields );
+    $self->logger()->trace( 'Profile fields' . Dumper $fields );
 
     # Load preexisiting values from context
     my $values = {};
@@ -118,12 +118,18 @@ sub render_subject_form {
         $values = $self->serializer()->deserialize( $context->{$field_name} );
     }
 
-    $self->logger()->debug( 'Preset ' . Dumper $values );
+
+    my @fielddesc;
+    foreach my $field (@{$fields}) {
+        push @fielddesc, { label => $field->{LABEL}, value => $field->{DESCRIPTION}, format => 'raw' } if ($field->{DESCRIPTION});
+    }
+
+    $self->logger()->trace( 'Preset ' . Dumper $values );
 
     # Map the old notation for the new UI
     $fields = OpenXPKI::Client::UI::Handle::Profile::__translate_form_def( $fields, $field_name, $values );
 
-    $self->logger()->debug( 'Mapped fields' . Dumper $fields );
+    $self->logger()->trace( 'Mapped fields' . Dumper $fields );
 
     # record the workflow info in the session
     push @{$fields}, $self->__register_wf_token($wf_info, {
@@ -135,10 +141,21 @@ sub render_subject_form {
         type => 'form',
         action => 'workflow',
         content => {
-            submit_label => 'I18N_OPENXPKI_UI_WORKFLOW_LABEL_CONTINUE',
-            fields => $fields
+            submit_label => 'I18N_OPENXPKI_UI_WORKFLOW_SUBMIT_BUTTON',
+            fields => $fields,
+            buttons => $self->__get_form_buttons( $wf_info ),
         }
     });
+
+    if (@fielddesc) {
+        $self->add_section({
+            type => 'keyvalue',
+            content => {
+                label => 'I18N_OPENXPKI_UI_WORKFLOW_FIELD_HINT_LIST',
+                description => '',
+                data => \@fielddesc
+        }});
+    }
 
     return $self;
 
@@ -151,7 +168,7 @@ sub render_key_select {
     my $args = shift;
     my $wf_action = shift;
 
-    $self->logger()->debug( 'render_profile_select with args: ' . Dumper $args );
+    $self->logger()->trace( 'render_profile_select with args: ' . Dumper $args );
 
     my $wf_info = $args->{WF_INFO};
     my $context = $wf_info->{WORKFLOW}->{CONTEXT};
@@ -220,11 +237,11 @@ sub render_key_select {
         type => 'form',
         action => 'workflow',
         content => {
-        submit_label => 'I18N_OPENXPKI_UI_WORKFLOW_LABEL_CONTINUE',
+        submit_label => 'I18N_OPENXPKI_UI_WORKFLOW_SUBMIT_BUTTON',
             fields => \@fields
         }
     });
-    
+
     return $self;
 
 }
@@ -236,7 +253,7 @@ sub render_server_password {
     my $args = shift;
     my $wf_action = shift;
 
-    $self->logger()->debug( 'render_server_password with args: ' . Dumper $args );
+    $self->logger()->trace( 'render_server_password with args: ' . Dumper $args );
 
     my $wf_info = $args->{WF_INFO};
     my $context = $wf_info->{WORKFLOW}->{CONTEXT};
@@ -246,18 +263,18 @@ sub render_server_password {
     foreach my $field (@{$wf_info->{ACTIVITY}->{$wf_action}->{field}}) {
         my $value;
         if ($field->{name} eq '_password') {
-            $value = $self->send_command( 'get_random', { LENGTH => 16 });            
+            $value = $self->send_command( 'get_random', { LENGTH => 16 });
             if (!$value) {
                 $self->set_status('I18N_OPENXPKI_UI_PROFILE_UNABLE_TO_GENERATE_PASSWORD_ERROR_LABEL','error');
                 $self->add_section({
-                    type => 'text',                    
+                    type => 'text',
                     content => {
-                        label => 'I18N_OPENXPKI_UI_PROFILE_UNABLE_TO_GENERATE_PASSWORD_LABEL',                    
+                        label => 'I18N_OPENXPKI_UI_PROFILE_UNABLE_TO_GENERATE_PASSWORD_LABEL',
                         description => 'I18N_OPENXPKI_UI_PROFILE_UNABLE_TO_GENERATE_PASSWORD_DESC'
-                    }                    
+                    }
                 });
                 return $self;
-            }            
+            }
         } else {
             $value = $context->{$field->{name}};
         }
@@ -276,7 +293,7 @@ sub render_server_password {
         type => 'form',
         action => 'workflow',
         content => {
-        submit_label => 'I18N_OPENXPKI_UI_WORKFLOW_LABEL_CONTINUE',
+        submit_label => 'I18N_OPENXPKI_UI_WORKFLOW_SUBMIT_BUTTON',
             fields => \@fields
         }
     });
@@ -298,8 +315,9 @@ sub __translate_form_def {
         my $new = {
             name => $field_name.'{'.$field->{ID}.'}',
             label => $field->{LABEL},
-            tooltip => $field->{DESCRIPTION},
-            placeholder => $field->{DEFAULT}, # Default is used as placeholder!
+            tooltip => defined $field->{TOOLTIP} ? $field->{TOOLTIP} : $field->{DESCRIPTION},
+             # Placeholder is the new attribute, fallback to old default
+            placeholder => (defined $field->{PLACEHOLDER} ? $field->{PLACEHOLDER} : $field->{DEFAULT}),
             value => $values->{$field->{ID}}
         };
 

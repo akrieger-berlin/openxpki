@@ -52,7 +52,14 @@ sub fetch_workflow {
     my ( $self, $wf_type, $wf_id ) = @_;
 
 
-    my $wf = $self->SUPER::fetch_workflow($wf_type, $wf_id, undef, 'OpenXPKI::Server::Workflow' );
+    my $wf = $self->SUPER::fetch_workflow($wf_type, $wf_id, undef, 'OpenXPKI::Server::Workflow' )
+        or OpenXPKI::Exception->throw(
+            message => 'Requested workflow not found',
+            params  => {
+                WORKFLOW_TYPE => $wf_type,
+                WORKFLOW_ID => $wf_id,
+            },
+        );
     # the following both checks whether the user is allowed to
     # read the workflow at all and deletes context entries from $wf if
     # the configuration mandates it
@@ -73,7 +80,14 @@ sub fetch_workflow {
 
 sub fetch_unfiltered_workflow {
     my ( $self, $wf_type, $wf_id ) = @_;
-    my $wf = $self->SUPER::fetch_workflow($wf_type, $wf_id, undef, 'OpenXPKI::Server::Workflow' );
+    my $wf = $self->SUPER::fetch_workflow($wf_type, $wf_id, undef, 'OpenXPKI::Server::Workflow' )
+        or OpenXPKI::Exception->throw(
+            message => 'Requested workflow not found',
+            params  => {
+                WORKFLOW_TYPE => $wf_type,
+                WORKFLOW_ID => $wf_id,
+            },
+        );
 
     $self->__authorize_workflow({
         ACTION   => 'access',
@@ -81,11 +95,7 @@ sub fetch_unfiltered_workflow {
         FILTER   => 0,
     });
 
-    CTX('log')->log(
-        MESSAGE  => 'Unfiltered access to workflow ' . $wf->id . ' by ' . CTX('session')->get_user() . ' with role ' . CTX('session')->get_role(),
-        PRIORITY => 'info',
-        FACILITY => 'audit',
-    );
+    CTX('log')->workflow()->info('Unfiltered access to workflow');
 
     return $wf;
 
@@ -148,7 +158,7 @@ sub get_action_info {
         ##! 64: 'Field info ' . Dumper $field
 
         my $field = $self->get_field_info( $field_name, $wf_name );
-        
+
         $field->{type} = 'text' unless ($field->{type});
         $field->{clonable} = ($field->{min} || $field->{max}) || 0;
 
@@ -161,13 +171,13 @@ sub get_action_info {
 }
 
 sub get_field_info {
-    
+
     my $self = shift;
     my $field_name = shift;
     my $wf_name = shift;
-    
+
     my $conn = CTX('config');
-    
+
     my @field_path;
     # Fields can be defined local or global (only actions inside workflow)
     if ($wf_name) {
@@ -195,31 +205,31 @@ sub get_field_info {
         }
         $field->{option} = \@option;
     }
-    
+
     return $field;
-    
+
 }
 
-=head2 authorize_workflow 
+=head2 authorize_workflow
 
-Public wrapper around __authorize_workflow, boolean return (true if 
+Public wrapper around __authorize_workflow, boolean return (true if
 access it granted).
 
 =cut
- 
+
 sub authorize_workflow {
 
     my $self     = shift;
     my $arg_ref  = shift;
-    
+
     eval {
-        $self->__authorize_workflow( $arg_ref );    
+        $self->__authorize_workflow( $arg_ref );
     };
     if ($EVAL_ERROR) {
         return 0;
-    }    
+    }
     return 1;
-    
+
 }
 
 
@@ -241,35 +251,40 @@ sub __authorize_workflow {
     my $filter   = $arg_ref->{ACTION};
     ##! 16: 'filter: ' . $filter
 
-    my $realm    = CTX('session')->get_pki_realm();
+    my $realm    = CTX('session')->data->pki_realm;
     ##! 16: 'realm: ' . $realm
 
-    my $role     = CTX('session')->get_role();
+    my $role     = CTX('session')->data->role;
     $role = 'Anonymous' unless($role);
     ##! 16: 'role: ' . $role
 
-    my $user     = CTX('session')->get_user();
+    my $user     = CTX('session')->data->user;
     ##! 16: 'user: ' . $user
 
 
     if ($action eq 'create') {
         my $type = $arg_ref->{TYPE};
 
-        my $creator = $conn->get([ 'workflow', 'def', $type, 'acl', $role, 'creator' ] );
-        # if creator is set to any value, access is allowed
-        my $is_allowed = defined $creator;
+        $conn->exists([ 'workflow', 'def', $type])
+            or OpenXPKI::Exception->throw(
+                message => 'I18N_OPENXPKI_UI_WORKFLOW_CREATE_UNKNOWN_TYPE',
+                params  => {
+                    'REALM'   => $realm,
+                    'WF_TYPE' => $type,
+                },
+            );
 
-        ##! 16: 'allowed workflows ' . Dumper \%allowed_workflows
-        if (! $is_allowed ) {
-            OpenXPKI::Exception->throw(
-                message => 'I18N_OPENXPKI_SERVER_ACL_AUTHORIZE_WORKFLOW_CREATE_PERMISSION_DENIED',
+        # if creator is set then access is allowed
+        $conn->exists([ 'workflow', 'def', $type, 'acl', $role, 'creator' ])
+            or OpenXPKI::Exception->throw(
+                message => 'I18N_OPENXPKI_UI_WORKFLOW_CREATE_NOT_ALLOWED',
                 params  => {
                     'REALM'   => $realm,
                     'ROLE'    => $role,
                     'WF_TYPE' => $type,
                 },
             );
-        }
+
         return 1;
     }
     elsif ($action eq 'access') {
@@ -282,7 +297,7 @@ sub __authorize_workflow {
 
         if (! defined $allowed_creator_re) {
             OpenXPKI::Exception->throw(
-                message => 'I18N_OPENXPKI_SERVER_ACL_AUTHORIZE_WORKFLOW_READ_PERMISSION_DENIED_NO_ACCESS_TO_TYPE',
+                message => 'I18N_OPENXPKI_UI_WORKFLOW_ACCESS_NOT_ALLOWED_FOR_ROLE',
                 params  => {
                     'REALM'   => $realm,
                     'ROLE'    => $role,
@@ -316,7 +331,7 @@ sub __authorize_workflow {
         if (!$is_allowed) {
             ##! 16: 'workflow creator does not match allowed creator'
             OpenXPKI::Exception->throw(
-                message => 'I18N_OPENXPKI_SERVER_ACL_AUTHORIZE_WORKFLOW_READ_PERMISSION_DENIED_WORKFLOW_CREATOR_NOT_ACCEPTABLE',
+                message => 'I18N_OPENXPKI_UI_WORKFLOW_ACCESS_NOT_ALLOWED_FOR_USER',
                 params => {
                     'REALM'   => $realm,
                     'ROLE'    => $role,

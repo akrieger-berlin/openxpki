@@ -98,14 +98,14 @@ sub BUILD {
     if ($self->_client()->_status()) {
         $self->_status(  $self->_client()->_status() );
     }
-   
+
 }
 
 sub _init_session {
-   
+
     my $self = shift;
     return $self->_client()->session();
-   
+
 }
 
 sub add_section {
@@ -133,27 +133,27 @@ sub set_status {
 }
 
 sub refresh() {
-    
+
     my $self = shift;
     my $location = shift;
     my $timeout = shift || 60;
-    
+
     $self->_refresh({ href => $location, timeout => $timeout * 1000 });
-    
+
     return $self;
-    
+
 }
 
 =head2 send_command
 
 Expects the name of the command as first and the parameter hash as second
 argument. Sends the named command to the backend and returned the result.
-If the command does not success, set_status_from_error_reply is called 
+If the command does not succeed, set_status_from_error_reply is called
 and undef is returned. In case the command was a workflow action and the
-backend reports a validation error, the error from the validator is set 
+backend reports a validation error, the error from the validator is set
 as status.
 
-If you set a true value for the third parameter, the global status is 
+If you set a true value for the third parameter, the global status is
 B<not> set if an error occurs.
 
 =cut
@@ -174,19 +174,9 @@ sub send_command {
     $self->logger()->trace('send command raw reply: '. Dumper $reply);
 
     if ( $reply->{SERVICE_MSG} ne 'COMMAND' ) {
-        
-        if ($reply->{LIST} && ref $reply->{LIST} eq 'ARRAY' &&
-            $reply->{LIST}->[0]->{LABEL} eq 'I18N_OPENXPKI_SERVER_WORKFLOW_VALIDATION_FAILED_ON_EXECUTE') {
-            my $p = $reply->{LIST}->[0]->{PARAMS};
-            my $validator_msg = $p->{__ERROR__};
-            my $field_errors = $p->{__FIELDS__};
-            my @fields = (ref $field_errors eq 'ARRAY') ? map { $_->{name} } @$field_errors : ();
-            $self->_status({ level => 'error', message => $validator_msg, field_errors => $field_errors });
-            $self->logger()->error("Input validation error on fields ". join ",", @fields);
-            $self->logger()->debug('validation details' . Dumper $field_errors );
-        } elsif (!$nostatus) {
+        if (!$nostatus) {
             $self->logger()->error("command $command failed ($reply->{SERVICE_MSG})");
-            $self->logger()->debug("command reply ". Dumper $reply);
+            $self->logger()->trace("command reply ". Dumper $reply);
             $self->set_status_from_error_reply( $reply );
         }
         return undef;
@@ -210,9 +200,9 @@ sub set_status_from_error_reply {
         } elsif($reply->{'LIST'}->[0]->{LABEL}) {
             $message = $reply->{'LIST'}->[0]->{LABEL};
         }
-        
+
         $self->logger()->error($message);
-        
+
         if ($message !~ /I18N_OPENXPKI_UI_/) {
             if ($message =~ /I18N_OPENXPKI_([^\s;]+)/) {
                 my $ve = lc($1);
@@ -220,9 +210,9 @@ sub set_status_from_error_reply {
                 $message = "I18N_OPENXPKI_UI_UNKNOWN_ERROR ($ve)";
             } else {
                 $message = 'I18N_OPENXPKI_UI_UNKNOWN_ERROR';
-            }            
-        }        
-        
+            }
+        }
+
     } else {
         $self->logger()->trace(Dumper $reply);
     }
@@ -329,12 +319,12 @@ sub param {
     }
 
     foreach my $name (@keys) {
-        
+
         if (ref $name) {
             # This happens only with broken CGI implementations
             die "Got reference where name was expected";
         }
-        
+
         # for workflows - strip internal fields (start with wf_)
         next if ($name =~ m{ \A wf_ }xms);
 
@@ -342,7 +332,7 @@ sub param {
         if ($name =~ m{ \A (\w+)\[\] \z }xms) {
             my @val = $self->param($name);
             $result->{$1} = \@val;
-        } elsif ($name =~ m{ \A (\w+){(\w+)}(\[\])? \z }xms) {
+        } elsif ($name =~ m{ \A (\w+)\{(\w+)\}(\[\])? \z }xms) {
             # if $3 is set we have an array element of a named parameter
             # (e.g. multivalued subject_parts)
             $result->{$1} = {} unless( $result->{$1} );
@@ -394,7 +384,7 @@ sub render {
     my $json = new JSON()->utf8;
     my $body;
     my $redirect;
-       
+
     if ($redirect = $self->redirect()) {
         if (ref $redirect ne 'HASH') {
             $redirect = { goto => $redirect };
@@ -402,31 +392,38 @@ sub render {
         $body = $json->encode( $redirect );
     } elsif ($result->{_raw}) {
         $body = i18nTokenizer ( $json->encode($result->{_raw}) );
-    } else {        
+    } else {
         $result->{session_id} = $self->_session->id;
 
-        # Add message of the day if set and we have a page section        
+        # Add message of the day if set and we have a page section
         if ($result->{page} && (my $motd = $self->_session()->param('motd'))) {
              $self->_session()->param('motd', undef);
-             $result->{status} = $motd; 
-        }        
+             $result->{status} = $motd;
+        }
         $body = i18nTokenizer ( $json->encode($result) );
     }
-        
+
 
     my $cgi = $self->cgi();
     # Return the output into the given pointer
     if ($output && ref $output eq 'SCALAR') {
-        $$output = $body;        
+        $$output = $body;
     } elsif (ref $cgi && $cgi->http('HTTP_X-OPENXPKI-Client')) {
-        # Start output stream        
-        print $cgi->header( @main::header );        
+        # Start output stream
+        print $cgi->header( @main::header );
         print $body;
     } else {
         # Do a redirect to the baseurl
-        my $url = $self->_session()->param('baseurl');
+        my $url;
         if (ref $redirect eq 'HASH' && $redirect->{goto}) {
-            $url .= $redirect->{goto};
+            $url = $redirect->{goto};
+        } elsif ($body) {
+            $url = 'openxpki/'.$self->__persist_response( { data => $body } );
+        }
+        # if url does not start with http or slash, prepend baseurl
+        if ($url !~ m{\A http|/}x) {
+            my $baseurl = $self->_session()->param('baseurl');
+            $url = $baseurl.$url;
         }
         print $cgi->redirect($url);
     }
@@ -454,42 +451,70 @@ sub init_fetch {
         return $self;
     }
 
-    $self->logger()->debug('Got response ' . Dumper $data);
+    $self->logger()->trace('Got response ' . Dumper $data);
+
+    # support multi-valued responses (persisted as array ref)
+    if (ref $data eq 'ARRAY') {
+        my $idx = $self->param('idx');
+        $self->logger()->debug('Found mulitvalued response, index is  ' . $idx);
+        if (!defined $idx || ($idx > scalar @{$data})) {
+            die "Invalid index";
+        }
+        $data = $data->[$idx];
+    }
+
+    if (ref $data ne 'HASH') {
+        die "Invalid, incomplete or expired fetch statement";
+    }
 
     $data->{mime} = "application/json; charset=UTF-8" unless($data->{mime});
 
     # Start output stream
     my $cgi = $self->cgi();
-           
+
     if ($data->{data}) {
         print $cgi->header( @main::header, -type => $data->{mime}, -attachment => $data->{attachment} );
         print $data->{data};
         exit;
     }
-        
+
     my ($type, $source) = ($data->{source} =~ m{(\w+):(.*)});
     $self->logger()->debug('Fetch source: '.$type.', Key: '.$source );
-    
+
     if ($type eq 'file') {
         open (my $fh, $source) || die 'Unable to open file';
         print $cgi->header( @main::header, -type => $data->{mime}, -attachment => $data->{attachment} );
         while (my $line = <$fh>) {
             print $line;
         }
-        close $fh;        
+        close $fh;
     } elsif ($type eq 'datapool') {
         # todo - catch exceptions/not found
-        my $dp = $self->send_command( 'get_data_pool_entry', {            
+        my $dp = $self->send_command( 'get_data_pool_entry', {
             NAMESPACE => 'workflow.download',
             KEY => $source,
         });
         if (!$dp->{VALUE}) {
             die "Requested data not found/expired";
-        }        
+        }
         print $cgi->header( @main::header, -type => $data->{mime}, -attachment => $data->{attachment} );
         print $dp->{VALUE};
+
+    } elsif ($type eq 'report') {
+        # todo - catch exceptions/not found
+        my $report = $self->send_command( 'get_report', {
+            NAME => $source,
+            FORMAT => 'ALL',
+        });
+        if (!$report) {
+            die "Requested data not found/expired";
+        }
+
+        print $cgi->header( @main::header, -type => $report->{mime_type}, -attachment => $report->{report_name} );
+        print $report->{report_value};
+
     }
-    
+
     exit;
 
 }
@@ -662,25 +687,25 @@ sub __fetch_response {
 =head2 __generate_uid
 
 Generate a random uid (base64 encoded with dangerours chars removed)
- 
+
 =cut
 sub __generate_uid {
 
-    my $self = shift; 
+    my $self = shift;
     my $queryid = sha1_base64(time.rand().$$);
     $queryid =~ s{[+/]}{}g;
-    return $queryid; 
+    return $queryid;
 }
 
 =head2 __render_pager
 
-Return a pager definition hash with default settings, requires the query 
+Return a pager definition hash with default settings, requires the query
 result hash as argument. Defaults can be overriden passing a hash as second
-argument. 
+argument.
 
 =cut
 sub __render_pager {
-    
+
     my $self = shift;
     my $result = shift;
     my $args = shift;
@@ -689,33 +714,33 @@ sub __render_pager {
     if (!$limit) { $limit = 50; }
     # Safety rule
     elsif ($limit > 500) {  $limit = 500; }
-    
+
     my $startat = ($args->{startat} *1) || 0;
-    
+
     if (!$args->{pagesizes}) {
         $args->{pagesizes} = [25,50,100,250,500];
     }
-    
+
     if (!grep (/^$limit$/, @{$args->{pagesizes}}) ) {
         push @{$args->{pagesizes}}, $limit;
-        $args->{pagesizes} = [ sort { $a <=> $b } @{$args->{pagesizes}} ];        
+        $args->{pagesizes} = [ sort { $a <=> $b } @{$args->{pagesizes}} ];
     }
-    
+
     if (!$args->{pagersize}) {
         $args->{pagersize} = 20;
     }
 
-    $self->logger()->debug('pager query' . Dumper $args);
-        
-    return { 
-        startat => $startat, 
+    $self->logger()->trace('pager query' . Dumper $args);
+
+    return {
+        startat => $startat,
         limit =>  $limit,
-        count => $result->{count} * 1, 
-        pagesizes => $args->{pagesizes}, 
+        count => $result->{count} * 1,
+        pagesizes => $args->{pagesizes},
         pagersize => $args->{pagersize},
         pagerurl => $result->{'type'}.'!pager!id!'.$result->{id},
-        order => $result->{query}->{ORDER} || '', 
-        reverse => $result->{query}->{REVERSE} ? 1 : 0,  
+        order => $result->{query}->{ORDER} || '',
+        reverse => $result->{query}->{REVERSE} ? 1 : 0,
     }
 }
 
@@ -723,7 +748,7 @@ sub __render_pager {
 =head2 __temp_param
 
 Get or set a temporary session parameter, the value is auto-destroyed after
-it was not being used for a given time period, default is 15 minutes.  
+it was not being used for a given time period, default is 15 minutes.
 
 =cut
 
@@ -736,79 +761,100 @@ sub __temp_param {
 
     # one argument - get request
     if (!defined $data) {
-        return $self->_client->session()->param( $key );        
+        return $self->_client->session()->param( $key );
     }
 
     $expire = '+15m' unless defined $expire;
     $self->_client->session()->param($key, $data);
     $self->_client->session()->expire($key, $expire) if ($expire);
-    
+
     return $self;
-}    
+}
 
 
 =head2 __build_attribute_subquery
 
-Expects an attribtue query definition hash (from uicontrol), returns arrayref 
+Expects an attribtue query definition hash (from uicontrol), returns arrayref
 to be used as attribute subquery in certificate and workflow search.
 
-=cut 
+=cut
 sub __build_attribute_subquery {
 
     my $self = shift;
     my $attributes = shift;
-   
+
     if (!$attributes || ref $attributes ne 'ARRAY') {
         return [];
     }
-   
+
     my @attr;
-           
+
     foreach my $item (@{$attributes}) {
         my $key = $item->{key};
         my $pattern = $item->{pattern} || '';
-        my $operator = $item->{operator} || 'EQUAL';
+        my $operator = uc($item->{operator} || 'IN');
         my $transform = $item->{transform} || '';
         my @val = $self->param($key.'[]');
+
+        my @preprocessed;
+
         while (my $val = shift @val) {
             # embed into search pattern from config
             $val = sprintf($pattern, $val) if ($pattern);
-            # replace asterisk as wildcard
-            $val =~ s/\*/%/g;
-            
+
+            # replace asterisk as wildcard for like fields
+            if ($operator =~ /LIKE/) {
+                $val =~ s/\*/%/g;
+            }
+
             if ($transform =~ /lower/) {
                 $val = lc($val);
             } elsif ($transform =~ /upper/) {
                 $val = uc($val);
             }
-            
+
             $self->logger()->debug( "Query: $key $operator $val" );
-            
-            push @attr,  { KEY => $key, VALUE => $val, OPERATOR => uc($operator) };
+            push @preprocessed, $val;
+        }
+
+        if (!@preprocessed) {
+            next;
+        }
+
+        if ($operator eq 'IN') {
+            push @attr,  { KEY => $key, VALUE => \@preprocessed };
+        } elsif ($operator eq 'INLIKE' ) {
+            push @attr,  { KEY => $key, VALUE => \@preprocessed, OPERATOR => 'LIKE' };
+        } else {
+            map {
+                push @attr,  { KEY => $key, VALUE => $_, OPERATOR => $operator };
+            } @preprocessed;
         }
     }
-    
+
+    $self->logger()->trace('Attribute subquery ' . Dumper \@attr);
+
     return \@attr;
-    
+
 }
 
 =head2 __build_attribute_preset
 
-Expects an attribtue query definition hash (from uicontrol), returns arrayref 
+Expects an attribtue query definition hash (from uicontrol), returns arrayref
 to be used as preset when reloading the search form
 
-=cut 
+=cut
 sub __build_attribute_preset {
 
     my $self = shift;
     my $attributes = shift;
-   
+
     if (!$attributes || ref $attributes ne 'ARRAY') {
         return [];
     }
-   
+
     my @attr;
-           
+
     foreach my $item (@{$attributes}) {
         my $key = $item->{key};
         my @val = $self->param($key.'[]');
@@ -816,9 +862,9 @@ sub __build_attribute_preset {
             push @attr,  { key => $key, value => $val };
         }
     }
-    
+
     return \@attr;
-    
+
 }
 
 

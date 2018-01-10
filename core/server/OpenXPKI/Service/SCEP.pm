@@ -20,7 +20,8 @@ use OpenXPKI::i18n qw(set_language);
 use OpenXPKI::Debug;
 use OpenXPKI::Exception;
 use OpenXPKI::Server;
-use OpenXPKI::Server::Session::Mock;
+use OpenXPKI::Server::Session;
+use OpenXPKI::Server::Session::Data::SCEP;
 use OpenXPKI::Server::Context qw( CTX );
 use OpenXPKI::Service::SCEP::Command;
 use OpenXPKI::Serialization::Simple;
@@ -33,24 +34,18 @@ sub init {
 
     ##! 1: "start"
 
-    # init (mock) session
+    # init memory-only session
     $self->__init_session();
 
-    # get realm from client and save in session
-    my $realm = $self->__init_pki_realm();
-    CTX('session')->set_pki_realm($realm);
-    my $profile = $self->__init_profile();
-    CTX('session')->set_profile($profile);
-    my $server = $self->__init_server();
-    CTX('session')->set_server($server);
-    my $encryption_alg = $self->__init_encryption_alg();
-    CTX('session')->set_enc_alg($encryption_alg);
-    my $hash_alg = $self->__init_hash_alg();
-    CTX('session')->set_hash_alg($hash_alg);
+    CTX('session')->data->pki_realm($self->__init_pki_realm);
+    CTX('session')->data->profile($self->__init_profile);
 
-    #my $context = $self->__init_context_parameter();
+    my $server = $self->__init_server;
+    CTX('session')->data->server($server);
+    CTX('session')->data->user($server);
 
-    CTX('session')->set_user($server);
+    CTX('session')->data->enc_alg($self->__init_encryption_alg);
+    CTX('session')->data->hash_alg($self->__init_hash_alg);
 
     return 1;
 }
@@ -101,7 +96,7 @@ sub __init_server : PRIVATE {
     my $ident   = ident $self;
     my $arg_ref = shift;
 
-    my $realm = CTX('session')->get_pki_realm();
+    my $realm = CTX('session')->data->pki_realm;
     my $config = CTX('config');
 
     my $message = $self->collect();
@@ -144,7 +139,7 @@ sub __init_hash_alg : PRIVATE {
     my $ident   = ident $self;
     my $arg_ref = shift;
 
-    my $realm = CTX('session')->get_pki_realm();
+    my $realm = CTX('session')->data->pki_realm;
 
     my $message = $self->collect();
     ##! 16: "message collected: " . Dumper($message)
@@ -183,7 +178,7 @@ sub __init_encryption_alg : PRIVATE {
     my $ident   = ident $self;
     my $arg_ref = shift;
 
-    my $realm = CTX('session')->get_pki_realm();
+    my $realm = CTX('session')->data->pki_realm;
 
     my $message = $self->collect();
     ##! 16: "message collected: " . Dumper($message)
@@ -217,23 +212,13 @@ sub __init_encryption_alg : PRIVATE {
 }
 
 sub __init_session : PRIVATE {
-
-    ##! 4: 'start'
-
-    my $self  = shift;
-    my $ident = ident $self;
-    my $arg   = shift;
-
-    my $session = undef;
-
-    $session = OpenXPKI::Server::Session->new({
-        DIRECTORY => CTX('config')->get("system.server.session.directory"),
-        LIFETIME  => CTX('config')->get("system.server.session.lifetime"),
-    });
-
-    # use a mock session to save the PKI realm in
-    #$session = OpenXPKI::Server::Session::Mock->new();
-    OpenXPKI::Server::Context::setcontext( { 'session' => $session } );
+    # memory-only session is sufficient for SCEP
+    my $session = OpenXPKI::Server::Session->new(
+        type => "Memory",
+        data_class => "OpenXPKI::Server::Session::Data::SCEP",
+    )->create;
+    OpenXPKI::Server::Context::setcontext({ session => $session, force => 1 });
+    Log::Log4perl::MDC->put('sid', substr(CTX('session')->id,0,4));
 }
 
 sub __init_pki_realm : PRIVATE {
@@ -344,11 +329,8 @@ MESSAGE:
         ##! 4: "check for logout"
         if ( $service_msg eq 'LOGOUT' ) {
             ##! 8: "logout received - killing session and connection"
-            CTX('log')->log(
-                MESSAGE  => 'Terminating session',
-                PRIORITY => 'info',
-                FACILITY => 'system',
-            );
+            CTX('log')->system()->info('Terminating session');
+
             exit 0;
         }
 
@@ -390,33 +372,32 @@ MESSAGE:
 
                 if ( defined $command ) {
                     my $result;
-                    eval { $result = $command->execute(); };
-                    if ($EVAL_ERROR) {
-                        CTX('log')->log(
-                            MESSAGE =>
-                                "Error executing SCEP command '$received_command': $EVAL_ERROR",
-                            PRIORITY => 'error',
-                            FACILITY => 'system',
-                        );
+                    eval {
+                        CTX('dbi')->start_txn();
+                        $result = $command->execute();
+                        CTX('dbi')->commit();
+                    };
+                    if (my $eval_err = $EVAL_ERROR) {
+                        # the datapool semaphore and the workflow make intermediate commits
+                        # so the rollback only affects any uncompleted actions
+                        CTX('dbi')->rollback();
+                        CTX('log')->system()->error("Error executing SCEP command '$received_command': $eval_err");
+
                         ##! 14: "Exception caught during command execution"
-                        ##! 14: "$EVAL_ERROR"
+                        ##! 14: "$eval_err"
                         $self->talk(
                             $self->__get_error(
                                 {   ERROR =>
                                         'I18N_OPENXPKI_SERVICE_SCEP_RUN_COMMAND_EXECUTION_FAILED',
-                                    EXCEPTION => $EVAL_ERROR,
+                                    EXCEPTION => $eval_err,
                                 }
                             )
                         );
 
                         next MESSAGE;
                     }
-                    CTX('log')->log(
-                        MESSAGE =>
-                            "Executed SCEP command '$received_command'",
-                        PRIORITY => 'debug',
-                        FACILITY => 'system',
-                    );
+                    CTX('log')->system()->debug("Executed SCEP command '$received_command'");
+
 
                     # sanity checks on command reply
                     if ( !defined $result || ref $result ne 'HASH' ) {

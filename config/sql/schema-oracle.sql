@@ -1,7 +1,7 @@
--- 
+--
 -- Created by SQL::Translator::Producer::Oracle
 -- Created on Thu Nov  3 23:31:57 2016
--- 
+--
 --
 -- Table: aliases
 --;
@@ -181,6 +181,20 @@ CREATE TABLE datapool (
 );
 
 --
+-- Table: report
+--;
+
+create table REPORT (
+  report_name varchar2(63),
+  pki_realm varchar2(255),
+  created number(38), -- unix timestamp
+  mime_type varchar2(63), -- advisory, e.g. text/csv, text/plain, application/pdf, ...
+  description varchar2(255),
+  report_value clob,
+  primary key ("report_name", "pki_realm")
+);
+
+--
 -- Table: secret
 --;
 
@@ -191,6 +205,21 @@ CREATE TABLE secret (
   group_id varchar2(255) NOT NULL,
   data clob,
   PRIMARY KEY (pki_realm, group_id)
+);
+
+--
+-- Table: session
+--;
+
+DROP TABLE session CASCADE CONSTRAINTS;
+
+CREATE TABLE session (
+  session_id varchar2(255) NOT NULL,
+  data clob,
+  created number NOT NULL,
+  modified number NOT NULL,
+  ip_address varchar2(45),
+  PRIMARY KEY (session_id)
 );
 
 --

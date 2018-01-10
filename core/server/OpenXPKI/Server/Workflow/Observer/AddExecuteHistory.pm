@@ -22,12 +22,15 @@ sub update {
             action      => $action_name,
             description => $desc_start . $workflow->state(),
             state       => $old_state,
-            user        => CTX('session')->get_user(),
+            user        => CTX('session')->data->user,
         })
     );
     ## save this history entry
     $workflow->factory()->save_workflow( $workflow );
-    
+
+    # we need to commit to not loose this
+    $workflow->_factory()->_commit_transaction( $workflow );
+
 }
 
 1;

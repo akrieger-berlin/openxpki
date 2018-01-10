@@ -330,7 +330,9 @@ WriteMakefile(
         'Connector'                     => '1.08',
         'Crypt::CBC'                    => '2.29',
         'Crypt::OpenSSL::AES'           => '0.02',      # for e.g. OpenXPKI::Crypto::VolatileVault
+        'Crypt::Cipher::AES'               => 0,           # replacement to support keysize > 128
         'Crypt::PKCS10'                 => '1.8',
+        'Crypt::X509'                   => 0,
         'Data::Password'                => '1.07',
         'Data::Serializer'              => '0.44',
         'Data::UUID'                    => 0,           # for OpenXPKI::Template::Plugin::Utils and CPAN
@@ -361,6 +363,7 @@ WriteMakefile(
         'Net::Server'                   => '0.94',
         'NetAddr::IP'                   => 0,
         'Params::Validate'              => '0.77',
+        'Proc::Daemon'                  => '0.23',
         'Proc::ProcessTable'            => '0.43',
         'Proc::SafeExec'                => '1.4',
         'Regexp::Common'                => '2',
@@ -368,7 +371,7 @@ WriteMakefile(
         ## 'RT::Client::REST'              => '0', CURRENTLY OPTIONAL
         'SOAP::Lite'                    => 0,
         'SQL::Abstract::More'           => '1.28',      # for OpenXPKI::Server::Database
-        'Sub::Exporter'                 => 0,           # for OpenXPKI::Server::Database::Util
+        'Sub::Exporter'                 => 0,           # for OpenXPKI::MooseParams
         'Sys::SigAction'                => '0.06',
         'Template'                      => '2.15',
         'Test::More'                    => '0.98',
@@ -376,8 +379,10 @@ WriteMakefile(
         'Test::Pod'                     => '1.00',
         'Text::CSV_XS'                  => '0.23',
         'Time::HiRes'                   => '1',
+        'Try::Tiny'                     => '0.28',
         'Workflow'                      => '0.27',
         'XML::Simple'                   => '1',
+        'YAML::Tiny'                    => '1.69',
     },
     test       => {TESTS => 't/*/*.t',
                   },

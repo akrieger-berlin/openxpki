@@ -8,7 +8,6 @@ print STDERR "OpenXPKI::Server::Authentication\n" if $ENV{VERBOSE};
 
 use OpenXPKI::Server::Context qw( CTX );
 use OpenXPKI::Server::Init;
-use OpenXPKI::Server::Session;
 use OpenXPKI::Server::Authentication;
 ok(1);
 
@@ -17,11 +16,11 @@ ok(1);
 
 ## init XML cache
 OpenXPKI::Server::Init::init(
-    {	
+    {
 	TASKS => [
-	    'config_test',     
+	    'config_test',
         'log',
-        'dbi_backend',        
+        'dbi',
     ],
 	SILENT => 1,
     });

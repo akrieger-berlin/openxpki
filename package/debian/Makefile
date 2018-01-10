@@ -28,6 +28,7 @@ PACKAGES=			\
 
 EXTERNAL=				\
 	Crypt__OpenSSL__AES		\
+	Crypt__Cipher__AES \
 	Data__SpreadPagination		\
 	Class__Observable 		\
 	Git__PurePerl \
@@ -36,6 +37,7 @@ EXTERNAL=				\
 	Proc__SafeExec \
 	XML__Filter__XInclude \
 	Crypt__PKCS10 \
+	Crypt__X509 \
 	DBIx__Handler \
     DBIx__TransactionManager
 
@@ -45,8 +47,8 @@ EXTERNAL2= \
 
 CORE = \
     CGI \
-    Module__Build__Tiny
-
+    Module__Build__Tiny \
+    Module__Load
 
 .PHONY : $(PACKAGES) $(EXTERNAL) $(EXTERNAL2) CGI DateTime__Format__DateParse
 
@@ -54,7 +56,7 @@ cpan_dependency: $(EXTERNAL)
 
 cpan_dependency2: $(EXTERNAL2) 
 
-trusty: CGI Module__Build__Tiny
+trusty: CGI Module__Build__Tiny Module__Load
 
 default:	clean
 	$(MAKE) $(EXTERNAL)

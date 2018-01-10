@@ -45,14 +45,11 @@ sub evaluate {
             context_key => $self->array_name(),
         }
     );
-    
+
     if ( $self->condition() eq 'is_empty' ) {
-        
-        CTX('log')->log(
-            MESSAGE => "Testing if WFArray ".$self->array_name()." is empty",
-            PRIORITY => 'debug',
-            FACILITY => [ 'application', ],
-        ); 
+
+        CTX('log')->application()->debug("Testing if WFArray ".$self->array_name()." is empty");
+
         if ( $array->count() == 0 ) {
             return 1;
         }
@@ -60,11 +57,8 @@ sub evaluate {
             'I18N_OPENXPKI_SERVER_WORKFLOW_CONDITION_WFARRAY_ARRAY_NOT_EMPTY';
     }
     elsif ( $self->condition() eq 'count_is' ) {
-        CTX('log')->log(
-            MESSAGE => "Testing if WFArray ".$self->array_name()." is " . $self->operand(),
-            PRIORITY => 'debug',
-            FACILITY => [ 'application', ],
-        ); 
+        CTX('log')->application()->debug("Testing if WFArray ".$self->array_name()." is " . $self->operand());
+
         if ( $array->count() == $self->operand() ) {
             return 1;
         }
@@ -86,8 +80,8 @@ OpenXPKI::Server::Workflow::Condition::WFArray
 
 =head1 SYNOPSIS
 
-  <condition 
-     name="queue_is_empty" 
+  <condition
+     name="queue_is_empty"
      class="OpenXPKI::Server::Workflow::Condition::WFArray">
     <param name="array_name" value="cert_queue"/>
     <param name="condition" value="is_empty"/>
